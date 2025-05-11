@@ -1,0 +1,88 @@
+#include <Servo.h>
+
+#define trigPin 9
+#define echoPin 8
+#define servoPin 6
+
+#define in1 2
+#define in2 3
+#define in3 4
+#define in4 5
+
+Servo radarServo;
+
+int detectedAngle = -1;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(in1, OUTPUT);
+  pinMode(in2, OUTPUT);
+  pinMode(in3, OUTPUT);
+  pinMode(in4, OUTPUT);
+
+  radarServo.attach(servoPin);
+  radarServo.write(90);
+  delay(500);
+}
+
+long getDistance() {
+  digitalWrite(trigPin, LOW); delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH);
+  return duration * 0.034 / 2;
+}
+
+void moveForward() {
+  digitalWrite(in1, HIGH); digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH); digitalWrite(in4, LOW);
+}
+
+void moveBackward() {
+  digitalWrite(in1, LOW); digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW); digitalWrite(in4, HIGH);
+}
+
+void stopMotors() {
+  digitalWrite(in1, LOW); digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW); digitalWrite(in4, LOW);
+}
+
+void loop() {
+  // Radar scan
+  for (int angle = 60; angle <= 120; angle += 5) {
+    radarServo.write(angle);
+    delay(200);
+    long dist = getDistance();
+    Serial.print("Angle: "); Serial.print(angle);
+    Serial.print(" Distance: "); Serial.println(dist);
+    
+    if (dist > 0 && dist < 30) {
+      detectedAngle = angle;
+      break;
+    }
+  }
+
+  if (detectedAngle != -1) {
+    // Turn to face the object
+    radarServo.write(detectedAngle);
+    delay(500);
+
+    // Move forward
+    moveForward();
+    delay(1500); // move for 1.5 seconds
+    stopMotors();
+    delay(1000);
+
+    // Return
+    moveBackward();
+    delay(1500);
+    stopMotors();
+    delay(1000);
+
+    radarServo.write(90); // reset radar
+    detectedAngle = -1;
+  }
+}
