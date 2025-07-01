@@ -1,185 +1,199 @@
-#include "SoftwareSerial.h"
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-SoftwareSerial Serial1(10,11);
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+#include <Servo.h>
+
+// Motor A (Left)
 const int ENA = 2;
-const int ENB = 7;
 const int IN1 = 3;
 const int IN2 = 4;
-const int IN3 = 5;
-const int IN4 = 6;
-const int FrontLEd = A1;
-const int BackLED = A2;
-const int HORN= A0;
-int motorSpeed = 150;
-char receivedChar;
+
+// Motor B (Right)
+const int ENB = 5;
+const int IN3 = 6;
+const int IN4 = 7;
+
+// Servos
+Servo servo1; // Arm
+Servo servo2; // Gripper
+
+// RGB LED Pins (PWM)
+const int frontRed = A4;
+const int frontGreen = A5;
+const int frontBlue = A6;
+
+const int backRed = A7;
+const int backGreen = A8;
+const int backBlue = A9;
+
+// Joystick Pins
+const int joyMoveX = A0;
+const int joyMoveY = A1;
+const int joyArmY  = A2;
+const int joyArmX  = A3;
+const int joyButton = A10;  // Push button pin
+
+// Servo Angles
+int armAngle = 90;
+int gripAngle = 90;
+int lastArmAngle = 90;
+int lastGripAngle = 90;
+
+const int center = 512;
+const int threshold = 50;
+
+// Debounce
+bool lastButtonState = HIGH;
+unsigned long lastDebounceTime = 0;
+const unsigned long debounceDelay = 200;
+
+// RGB Color Structure
+struct RGBColor {
+  int r, g, b;
+};
+
+// Define multiple RGB colors
+RGBColor frontColors[] = {
+  {255, 0, 0},    // Red
+  {0, 255, 0},    // Green
+  {0, 0, 255},    // Blue
+  {0, 255, 255},  // Cyan
+  {255, 0, 255},  // Magenta
+  {255, 255, 0},  // Yellow
+  {0, 0, 0}       // OFF
+};
+
+RGBColor backColors[] = {
+  {0, 255, 255},  // Cyan
+  {255, 128, 0},  // Orange
+  {128, 0, 255},  // Purple
+  {0, 255, 128},  // Mint
+  {255, 0, 255},  // Magenta
+  {0, 0, 255},    // Blue
+  {0, 0, 0}       // OFF
+};
+
+
+const int numColors = sizeof(frontColors) / sizeof(frontColors[0]);
+int colorIndex = 0;
+
 void setup() {
-  pinMode(ENB, OUTPUT);
+  Serial.begin(9600);
+
+  // Motor pins
   pinMode(ENA, OUTPUT);
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
+  pinMode(ENB, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
-  pinMode(HORN, OUTPUT);
-  pinMode(FrontLEd, OUTPUT);
-  pinMode(BackLED, OUTPUT);
-  Serial.begin(9600);
-  Serial1.begin(9600); 
-  lcd.init();
-  lcd.begin(16, 2);
-  lcd.backlight();
-  lcd.setBacklight(HIGH);
-  lcd.setCursor(3, 0);
-  lcd.print("Welcome To");
-  lcd.setCursor(0, 1);
-  lcd.print("Arjuna's Project");
-  
+  stopMotors();
+
+  // Attach servos
+  servo1.attach(11);
+  servo2.attach(10);
+  servo1.write(armAngle);
+  servo2.write(gripAngle);
+
+  // RGB LED pins
+  pinMode(frontRed, OUTPUT);
+  pinMode(frontGreen, OUTPUT);
+  pinMode(frontBlue, OUTPUT);
+  pinMode(backRed, OUTPUT);
+  pinMode(backGreen, OUTPUT);
+  pinMode(backBlue, OUTPUT);
+
+  // Joystick button
+  pinMode(joyButton, INPUT_PULLUP);
 }
 
 void loop() {
-  if (Serial1.available()) {
-    receivedChar = Serial1.read();
-    Serial.print("Received: ");
-    Serial.println(receivedChar);
-    switch (receivedChar) {
-    case 'F':
-    lcd.clear();
-      lcd.setCursor(4, 0);
-      lcd.print("Forward");
-      moveForward();
-      break;
-    case 'B':
-    lcd.clear();
-      lcd.setCursor(5, 0);
-      lcd.print("Backward");
-      moveBackward();
-      break;
-    case 'L':
-    lcd.clear();
-      lcd.setCursor(5, 0);
-      lcd.print("Left");
-      turnLeft();
-      break;
-    case 'R':
-    lcd.clear();
-      lcd.setCursor(5, 0);
-      lcd.print("Right");
-      turnRight();
-      break;
-    case 'S':
-    lcd.clear();
-      lcd.setCursor(5, 0);
-      lcd.print("Stop");
-      stopMotors();
-      break;
-    case 'W':
-      lcd.setCursor(0, 1);
-      lcd.print("Front Light on  ");
-      ONLED_F();
-      break;
-    case 'w':
-      lcd.setCursor(0, 1);
-      lcd.print("Front Light off");
-      OFFLed_F();
-      break;
-    case 'U':
-      lcd.setCursor(0, 1);
-      lcd.print("Back Light on  ");
-      ON_LEDB();
-      break;
-    case 'u':
-      lcd.setCursor(0, 1);
-      lcd.print("Back Light off");
-      Off_LEDB();
-      break;
-    case 'V':
-      lcd.setCursor(0, 1);
-      lcd.print("Horn On       ");
-      Hornon();
-      break;
-    case 'v':
-      lcd.setCursor(0, 1);
-      lcd.print("Horn off      ");
-      Hornoff();
-      break;
+  // Movement control
+  int x1 = analogRead(joyMoveX) - center;
+  int y1 = analogRead(joyMoveY) - center;
 
+  if (abs(x1) < threshold) x1 = 0;
+  if (abs(y1) < threshold) y1 = 0;
 
-    case '+':
-      if (motorSpeed < 255) {
-        motorSpeed += 10;
-      }
-      lcd.setCursor(0, 1);
-      lcd.print("Speed: ");
-      lcd.print(motorSpeed);
-      break;
-    case '-':
-      if (motorSpeed > 0) {
-        motorSpeed -= 10; 
-      }
-      lcd.setCursor(0, 1);
-      lcd.print("Speed: ");
-      lcd.print(motorSpeed);
-      break;
-    default:
-      break;
+  if (y1 > 0 && x1 == 0) moveForward();
+  else if (y1 < 0 && x1 == 0) moveBackward();
+  else if (x1 > 0 && y1 == 0) turnRight();
+  else if (x1 < 0 && y1 == 0) turnLeft();
+  else stopMotors();
+
+  // Joystick button to cycle colors
+  bool reading = digitalRead(joyButton);
+  if (reading == LOW && lastButtonState == HIGH && millis() - lastDebounceTime > debounceDelay) {
+    colorIndex = (colorIndex + 1) % numColors;
+    lastDebounceTime = millis();
   }
-  
+  lastButtonState = reading;
+
+  // Set RGB LEDs to current color
+  setRGB(frontRed, frontGreen, frontBlue,
+         frontColors[colorIndex].r,
+         frontColors[colorIndex].g,
+         frontColors[colorIndex].b);
+
+  setRGB(backRed, backGreen, backBlue,
+         backColors[colorIndex].r,
+         backColors[colorIndex].g,
+         backColors[colorIndex].b);
+
+  // Arm & Gripper control
+  int x2 = analogRead(joyArmX);
+  int y2 = analogRead(joyArmY);
+
+  armAngle = map(y2, 0, 1023, 0, 180);
+  gripAngle = map(x2, 0, 1023, 0, 180);
+
+  if (abs(armAngle - lastArmAngle) > 2) {
+    servo1.write(armAngle);
+    lastArmAngle = armAngle;
+    delay(10);
   }
-  
-}
-void moveForward(){
-  analogWrite(ENA, motorSpeed);
-  analogWrite(ENB, motorSpeed);
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
 
-}
-void moveBackward(){
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
-}
-void turnLeft(){
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
-}
-void turnRight(){
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
-}
-void stopMotors(){
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
-}
-void Hornon(){
-  digitalWrite(HORN, HIGH);
-}
-void Hornoff(){
-  digitalWrite(HORN, LOW);
-}
-void ONLED_F(){
-  digitalWrite(FrontLEd, HIGH);
-}
-void OFFLed_F(){
-  digitalWrite(FrontLEd, LOW);
-}
-void ON_LEDB(){
-  digitalWrite(BackLED, HIGH);
+  if (abs(gripAngle - lastGripAngle) > 2) {
+    servo2.write(gripAngle);
+    lastGripAngle = gripAngle;
+    delay(10);
+  }
+
+  delay(50);
 }
 
-void Off_LEDB(){
-  digitalWrite(BackLED, LOW);
+// RGB LED control
+void setRGB(int rPin, int gPin, int bPin, int rVal, int gVal, int bVal) {
+  analogWrite(rPin, rVal);
+  analogWrite(gPin, gVal);
+  analogWrite(bPin, bVal);
 }
 
+// Motor control
+void stopMotors() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+  digitalWrite(ENA, LOW);
+  digitalWrite(ENB, LOW);
+}
 
+void moveForward() {
+  digitalWrite(ENA, HIGH); digitalWrite(ENB, HIGH);
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+}
 
+void moveBackward() {
+  digitalWrite(ENA, HIGH); digitalWrite(ENB, HIGH);
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+}
+
+void turnLeft() {
+  digitalWrite(ENA, HIGH); digitalWrite(ENB, HIGH);
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+}
+
+void turnRight() {
+  digitalWrite(ENA, HIGH); digitalWrite(ENB, HIGH);
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+}
